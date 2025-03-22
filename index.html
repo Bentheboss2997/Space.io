@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Retro Space Shooter</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: black; color: white; font-family: Arial, sans-serif; }
+        #bulletCounter, #scoreCounter, #waveCounter, #highScoreCounter {
+            position: absolute;
+            bottom: 10px;
+            font-size: 20px;
+        }
+        #bulletCounter { left: 10px; }
+        #scoreCounter { right: 10px; }
+        #waveCounter { left: 10px; bottom: 40px; }
+        #highScoreCounter { right: 10px; bottom: 40px; }
+        #livesCounter {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 20px;
+        }
+        #gameOver, #paused {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 50px;
+            color: white;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="bulletCounter">Bullets: 50</div>
+    <div id="scoreCounter">Score: 0</div>
+    <div id="highScoreCounter">High Score: 0</div>
+    <div id="livesCounter">Lives: 3</div>
+    <div id="waveCounter">Wave: 1</div>
+    <div id="gameOver">Game Over! Press "R" to Restart</div>
+    <div id="paused">Paused! Press "P" to Resume</div>
+
+    <script>
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        document.body.appendChild(canvas);
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        class Spaceship {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 50;
+                this.height = 20;
+                this.color = "cyan";
+                this.magazine = 50;
+                this.reloading = false;
+                this.lives = 3;
+                this.speed = 10;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        class Bullet {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 6;
+                this.height = 10;
+                this.color = "yellow";
+            }
+            move() {
+                this.y -= 8;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        class Enemy {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 100;
+                this.height = 20;
+                this.color = "red";
+                this.speed = 1.5;
+            }
+            move() {
+                this.y += this.speed;
+            }
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+            }
+        }
+
+        let player = new Spaceship(canvas.width / 2 - 25, canvas.height - 50);
+        let bullets = [];
+        let enemies = [];
+        let keys = {};
+        let canShoot = true;
+        let score = 0;
+        let highScore = 0; // Stores the highest score
+        let wave = 1;
+        let totalEnemiesInWave = 6;
+        let enemiesDestroyed = 0;
+        let gameOver = false;
+        let isPaused = false;
+
+        function updateUI() {
+            document.getElementById("bulletCounter").textContent = `Bullets: ${player.magazine}${player.reloading ? " (Reloading...)" : ""}`;
+            document.getElementById("scoreCounter").textContent = `Score: ${score}`;
+            document.getElementById("highScoreCounter").textContent = `High Score: ${highScore}`;
+            document.getElementById("livesCounter").textContent = `Lives: ${player.lives}`;
+            document.getElementById("waveCounter").textContent = `Wave: ${wave}`;
+        }
+
+        function checkGameOver() {
+            if (player.lives <= 0) {
+                gameOver = true;
+                if (score > highScore) {
+                    highScore = score; // Update high score
+                }
+                document.getElementById("gameOver").style.display = "block";
+                updateUI();
+            }
+        }
+
+        function resetGame() {
+            player = new Spaceship(canvas.width / 2 - 25, canvas.height - 50);
+            bullets = [];
+            enemies = [];
+            score = 0;
+            wave = 1;
+            player.lives = 3;
+            totalEnemiesInWave = 6;
+            enemiesDestroyed = 0;
+            gameOver = false;
+            document.getElementById("gameOver").style.display = "none";
+            updateUI();
+            update();
+        }
+
+        function nextWave() {
+            wave++;
+            totalEnemiesInWave += 2;
+            enemiesDestroyed = 0;
+            updateUI();
+        }
+
+        function update() {
+            if (gameOver || isPaused) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (keys["a"] && player.x > 0) player.x -= player.speed;
+            if (keys["d"] && player.x < canvas.width - player.width) player.x += player.speed;
+
+            bullets.forEach((bullet, index) => {
+                bullet.move();
+                if (bullet.y < 0) bullets.splice(index, 1);
+            });
+
+            enemies.forEach((enemy, eIndex) => {
+                enemy.move();
+                if (enemy.y > canvas.height) {
+                    enemies.splice(eIndex, 1);
+                    player.lives--;
+                    updateUI();
+                }
+            });
+
+            bullets.forEach((bullet, bIndex) => {
+                enemies.forEach((enemy, eIndex) => {
+                    if (bullet.x < enemy.x + enemy.width && bullet.x + bullet.width > enemy.x &&
+                        bullet.y < enemy.y + enemy.height && bullet.y + bullet.height > enemy.y) {
+                        enemies.splice(eIndex, 1);
+                        bullets.splice(bIndex, 1);
+                        score += 10;
+                        enemiesDestroyed++;
+                    }
+                });
+            });
+
+            bullets.forEach((bullet) => bullet.draw());
+            enemies.forEach((enemy) => enemy.draw());
+            player.draw();
+            updateUI();
+            checkGameOver();
+
+            if (enemiesDestroyed >= totalEnemiesInWave) {
+                nextWave();
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        document.addEventListener("keydown", (e) => {
+            keys[e.key] = true;
+
+            if (e.key === " " && canShoot && player.magazine > 0 && !player.reloading) {
+                bullets.push(new Bullet(player.x + 22, player.y));
+                player.magazine--;
+                updateUI();
+                canShoot = false;
+                setTimeout(() => canShoot = true, 150);
+
+                if (player.magazine === 0) {
+                    player.reloading = true;
+                    updateUI();
+                    setTimeout(() => {
+                        player.magazine = 50;
+                        player.reloading = false;
+                        updateUI();
+                    }, 1500);
+                }
+            }
+
+            if (e.key.toLowerCase() === "p") {
+                isPaused = !isPaused;
+                document.getElementById("paused").style.display = isPaused ? "block" : "none";
+                if (!isPaused) update();
+            }
+
+            if (e.key.toLowerCase() === "r" && gameOver) resetGame();
+        });
+
+        document.addEventListener("keyup", (e) => {
+            keys[e.key] = false;
+        });
+
+        setInterval(() => {
+            if (!gameOver && !isPaused) {
+                enemies.push(new Enemy(Math.random() * (canvas.width - 60), 0));
+            }
+        }, 1200);
+
+        update();
+    </script>
+</body>
+</html>

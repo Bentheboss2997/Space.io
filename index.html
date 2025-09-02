@@ -1,34 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Retro Space Shooter</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: black; color: white; font-family: Arial, sans-serif; }
+        :root{
+            --ui-font: Arial, sans-serif;
+            --ui-size: 18px;
+        }
+        html, body { height: 100%; margin: 0; background-color: black; color: white; font-family: var(--ui-font); -webkit-user-select:none; -ms-user-select:none; user-select:none; touch-action: none; }
+        canvas { display:block; }
+
+        /* HUD */
         #bulletCounter, #scoreCounter, #waveCounter, #highScoreCounter {
             position: absolute;
-            bottom: 10px;
-            font-size: 20px;
+            bottom: 12px;
+            font-size: var(--ui-size);
+            padding: 6px 8px;
+            background: rgba(0,0,0,0.35);
+            border-radius: 6px;
+            pointer-events: none;
         }
         #bulletCounter { left: 10px; }
         #scoreCounter { right: 10px; }
-        #waveCounter { left: 10px; bottom: 40px; }
-        #highScoreCounter { right: 10px; bottom: 40px; }
+        #waveCounter { left: 10px; bottom: 48px; }
+        #highScoreCounter { right: 10px; bottom: 48px; }
         #livesCounter {
             position: absolute;
             top: 10px;
             left: 10px;
-            font-size: 20px;
+            font-size: var(--ui-size);
+            padding: 6px 8px;
+            background: rgba(0,0,0,0.35);
+            border-radius: 6px;
+            pointer-events: none;
         }
         #gameOver, #paused {
             position: absolute;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 50px;
+            font-size: 44px;
             color: white;
             display: none;
+            text-align: center;
+            padding: 12px 18px;
+            background: rgba(0,0,0,0.6);
+            border-radius: 8px;
+        }
+
+        /* Touch Fire Button */
+        #fireBtn {
+            position: absolute;
+            right: 14px;
+            bottom: 14px;
+            width: 86px;
+            height: 86px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 33% 33%, rgba(255,255,255,0.12), rgba(255,255,255,0.04));
+            border: 2px solid rgba(255,255,255,0.12);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: #fff;
+            z-index: 50;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: none;
+        }
+        #fireBtn:active { transform: scale(0.98); }
+
+        /* Small helper for touch instructions on first load */
+        #touchHint {
+            position: absolute;
+            left: 50%;
+            bottom: 120px;
+            transform: translateX(-50%);
+            padding: 8px 12px;
+            background: rgba(0,0,0,0.5);
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 40;
+            display: none; /* show via JS if touch detected */
+        }
+
+        /* Make UI larger on small screens */
+        @media (max-width: 600px) {
+            :root{ --ui-size: 16px; }
+            #fireBtn { width: 100px; height: 100px; }
+            #gameOver, #paused { font-size: 36px; padding: 10px 14px; }
         }
     </style>
 </head>
@@ -41,13 +102,28 @@
     <div id="gameOver">Game Over! Press "R" to Restart</div>
     <div id="paused">Paused! Press "P" to Resume</div>
 
+    <!-- Fire button for touch devices -->
+    <div id="fireBtn" aria-label="Fire button">FIRE</div>
+    <div id="touchHint">Touch & drag to move — tap FIRE to shoot</div>
+
     <script>
+        // Canvas setup
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
         document.body.appendChild(canvas);
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        function resizeCanvas() {
+            // preserve scale for crispness on mobile
+            const dpr = window.devicePixelRatio || 1;
+            canvas.width = Math.floor(window.innerWidth * dpr);
+            canvas.height = Math.floor(window.innerHeight * dpr);
+            canvas.style.width = window.innerWidth + "px";
+            canvas.style.height = window.innerHeight + "px";
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        window.addEventListener("resize", resizeCanvas);
+        resizeCanvas();
 
+        // Classes
         class Spaceship {
             constructor(x, y) {
                 this.x = x;
@@ -74,9 +150,7 @@
                 this.height = 10;
                 this.color = "yellow";
             }
-            move() {
-                this.y -= 8;
-            }
+            move() { this.y -= 8; }
             draw() {
                 ctx.fillStyle = this.color;
                 ctx.fillRect(this.x, this.y, this.width, this.height);
@@ -92,49 +166,63 @@
                 this.color = "red";
                 this.speed = 1.5;
             }
-            move() {
-                this.y += this.speed;
-            }
+            move() { this.y += this.speed; }
             draw() {
                 ctx.fillStyle = this.color;
                 ctx.fillRect(this.x, this.y, this.width, this.height);
             }
         }
 
-        let player = new Spaceship(canvas.width / 2 - 25, canvas.height - 50);
+        // Game state
+        let player = new Spaceship(window.innerWidth / 2 - 25, window.innerHeight - 80);
         let bullets = [];
         let enemies = [];
         let keys = {};
         let canShoot = true;
         let score = 0;
-        let highScore = 0; // Stores the highest score
+        let highScore = parseInt(localStorage.getItem("highScore")) || 0;
         let wave = 1;
         let totalEnemiesInWave = 6;
         let enemiesDestroyed = 0;
         let gameOver = false;
         let isPaused = false;
 
+        // Touch tracking (supports multiple touches)
+        const activeTouches = {}; // touchId -> {type: "move"|"fire", startX, startY}
+
+        // UI elements
+        const bulletCounter = document.getElementById("bulletCounter");
+        const scoreCounter = document.getElementById("scoreCounter");
+        const highScoreCounter = document.getElementById("highScoreCounter");
+        const livesCounter = document.getElementById("livesCounter");
+        const waveCounter = document.getElementById("waveCounter");
+        const gameOverText = document.getElementById("gameOver");
+        const pausedText = document.getElementById("paused");
+        const fireBtn = document.getElementById("fireBtn");
+        const touchHint = document.getElementById("touchHint");
+
         function updateUI() {
-            document.getElementById("bulletCounter").textContent = `Bullets: ${player.magazine}${player.reloading ? " (Reloading...)" : ""}`;
-            document.getElementById("scoreCounter").textContent = `Score: ${score}`;
-            document.getElementById("highScoreCounter").textContent = `High Score: ${highScore}`;
-            document.getElementById("livesCounter").textContent = `Lives: ${player.lives}`;
-            document.getElementById("waveCounter").textContent = `Wave: ${wave}`;
+            bulletCounter.textContent = `Bullets: ${player.magazine}${player.reloading ? " (Reloading...)" : ""}`;
+            scoreCounter.textContent = `Score: ${score}`;
+            highScoreCounter.textContent = `High Score: ${highScore}`;
+            livesCounter.textContent = `Lives: ${player.lives}`;
+            waveCounter.textContent = `Wave: ${wave}`;
         }
 
         function checkGameOver() {
             if (player.lives <= 0) {
                 gameOver = true;
                 if (score > highScore) {
-                    highScore = score; // Update high score
+                    highScore = score;
+                    localStorage.setItem("highScore", highScore);
                 }
-                document.getElementById("gameOver").style.display = "block";
+                gameOverText.style.display = "block";
                 updateUI();
             }
         }
 
         function resetGame() {
-            player = new Spaceship(canvas.width / 2 - 25, canvas.height - 50);
+            player = new Spaceship(window.innerWidth / 2 - 25, window.innerHeight - 80);
             bullets = [];
             enemies = [];
             score = 0;
@@ -143,9 +231,9 @@
             totalEnemiesInWave = 6;
             enemiesDestroyed = 0;
             gameOver = false;
-            document.getElementById("gameOver").style.display = "none";
+            gameOverText.style.display = "none";
             updateUI();
-            update();
+            requestAnimationFrame(update);
         }
 
         function nextWave() {
@@ -155,34 +243,61 @@
             updateUI();
         }
 
+        // Shooting logic (extracted)
+        function tryShoot() {
+            if (gameOver || isPaused) return;
+            if (canShoot && player.magazine > 0 && !player.reloading) {
+                bullets.push(new Bullet(player.x + player.width / 2 - 3, player.y));
+                player.magazine--;
+                updateUI();
+                canShoot = false;
+                setTimeout(() => canShoot = true, 150);
+
+                if (player.magazine === 0) {
+                    player.reloading = true;
+                    updateUI();
+                    setTimeout(() => {
+                        player.magazine = 50;
+                        player.reloading = false;
+                        updateUI();
+                    }, 1500);
+                }
+            }
+        }
+
+        // Game loop
         function update() {
             if (gameOver || isPaused) return;
-
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Keyboard movement
             if (keys["a"] && player.x > 0) player.x -= player.speed;
-            if (keys["d"] && player.x < canvas.width - player.width) player.x += player.speed;
+            if (keys["d"] && player.x < window.innerWidth - player.width) player.x += player.speed;
 
+            // Bullets
             bullets.forEach((bullet, index) => {
                 bullet.move();
-                if (bullet.y < 0) bullets.splice(index, 1);
+                if (bullet.y < -20) bullets.splice(index, 1);
             });
 
+            // Enemies
             enemies.forEach((enemy, eIndex) => {
                 enemy.move();
-                if (enemy.y > canvas.height) {
+                if (enemy.y > window.innerHeight) {
                     enemies.splice(eIndex, 1);
                     player.lives--;
                     updateUI();
                 }
             });
 
+            // Collisions
             bullets.forEach((bullet, bIndex) => {
                 enemies.forEach((enemy, eIndex) => {
                     if (bullet.x < enemy.x + enemy.width && bullet.x + bullet.width > enemy.x &&
                         bullet.y < enemy.y + enemy.height && bullet.y + bullet.height > enemy.y) {
                         enemies.splice(eIndex, 1);
-                        bullets.splice(bIndex, 1);
+                        // Guard removal indices (if already removed)
+                        try { bullets.splice(bIndex, 1); } catch(e){ }
                         score += 10;
                         enemiesDestroyed++;
                     }
@@ -202,47 +317,150 @@
             requestAnimationFrame(update);
         }
 
+        // Initial update frame
+        updateUI();
+        requestAnimationFrame(update);
+
+        // Keyboard handlers
         document.addEventListener("keydown", (e) => {
-            keys[e.key] = true;
+            keys[e.key.toLowerCase()] = true;
 
             if (e.key === " " && canShoot && player.magazine > 0 && !player.reloading) {
-                bullets.push(new Bullet(player.x + 22, player.y));
-                player.magazine--;
-                updateUI();
-                canShoot = false;
-                setTimeout(() => canShoot = true, 150);
-
-                if (player.magazine === 0) {
-                    player.reloading = true;
-                    updateUI();
-                    setTimeout(() => {
-                        player.magazine = 50;
-                        player.reloading = false;
-                        updateUI();
-                    }, 1500);
-                }
+                tryShoot();
             }
 
             if (e.key.toLowerCase() === "p") {
                 isPaused = !isPaused;
-                document.getElementById("paused").style.display = isPaused ? "block" : "none";
-                if (!isPaused) update();
+                pausedText.style.display = isPaused ? "block" : "none";
+                if (!isPaused) requestAnimationFrame(update);
             }
 
             if (e.key.toLowerCase() === "r" && gameOver) resetGame();
         });
 
         document.addEventListener("keyup", (e) => {
-            keys[e.key] = false;
+            keys[e.key.toLowerCase()] = false;
         });
 
+        // Enemy spawner
         setInterval(() => {
             if (!gameOver && !isPaused) {
-                enemies.push(new Enemy(Math.random() * (canvas.width - 60), 0));
+                enemies.push(new Enemy(Math.random() * (window.innerWidth - 120), -20));
             }
         }, 1200);
 
-        update();
+        // ---------- Touch / Pointer controls ----------
+
+        // Show hint the first time a touch event occurs
+        function showTouchHintOnce() {
+            if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+                touchHint.style.display = "block";
+                setTimeout(() => touchHint.style.display = "none", 2600);
+            }
+        }
+        window.addEventListener('touchstart', showTouchHintOnce, { once: true });
+
+        // Helper: translate clientX/Y to canvas coordinate space
+        function getCanvasCoords(clientX, clientY) {
+            // canvas is full-window and we scaled with devicePixelRatio via ctx.setTransform,
+            // so client coords map directly to drawing coords.
+            return { x: clientX, y: clientY };
+        }
+
+        // Touch handlers (support multiple touches)
+        window.addEventListener("touchstart", (ev) => {
+            ev.preventDefault();
+            for (const t of ev.changedTouches) {
+                const id = t.identifier;
+                const { x, y } = getCanvasCoords(t.clientX, t.clientY);
+
+                // Check if touch started inside fire button rect
+                const fb = fireBtn.getBoundingClientRect();
+                if (t.clientX >= fb.left && t.clientX <= fb.right && t.clientY >= fb.top && t.clientY <= fb.bottom) {
+                    activeTouches[id] = { type: "fire" };
+                    tryShoot();
+                    // allow rapid-fire by setting canShoot true again quickly if user keeps pressing
+                    // but keep magazine depletion
+                    continue;
+                }
+
+                // Otherwise treat as movement touch
+                activeTouches[id] = { type: "move", startX: x, startY: y };
+                // Immediately set player horizontal position to touch
+                player.x = Math.max(0, Math.min(window.innerWidth - player.width, x - player.width / 2));
+            }
+        }, { passive: false });
+
+        window.addEventListener("touchmove", (ev) => {
+            ev.preventDefault();
+            for (const t of ev.changedTouches) {
+                const id = t.identifier;
+                if (!activeTouches[id]) continue;
+                if (activeTouches[id].type === "move") {
+                    const { x } = getCanvasCoords(t.clientX, t.clientY);
+                    // Smooth follow: set player.x toward the touch to avoid jumpiness
+                    const targetX = x - player.width / 2;
+                    // simple smoothing (lerp)
+                    player.x += (targetX - player.x) * 0.35;
+                    // clamp
+                    player.x = Math.max(0, Math.min(window.innerWidth - player.width, player.x));
+                } else if (activeTouches[id].type === "fire") {
+                    // If they move inside the fire button, keep firing; otherwise do nothing.
+                    // We'll fire again on touchstart; to support hold-to-fire, we could implement interval,
+                    // but to keep behavior consistent with keyboard, we require repeated taps.
+                }
+            }
+        }, { passive: false });
+
+        window.addEventListener("touchend", (ev) => {
+            ev.preventDefault();
+            for (const t of ev.changedTouches) {
+                const id = t.identifier;
+                delete activeTouches[id];
+            }
+        }, { passive: false });
+
+        window.addEventListener("touchcancel", (ev) => {
+            for (const t of ev.changedTouches) {
+                const id = t.identifier;
+                delete activeTouches[id];
+            }
+        });
+
+        // Also allow pointer events for devices using a stylus or pointer
+        // Pointerdown on fire button triggers shooting
+        fireBtn.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            tryShoot();
+        });
+        // prevent default gestures on the fire button (so iOS doesn't show context menu)
+        fireBtn.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        // If touch device detected, ensure touch-friendly UI visible
+        if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+            fireBtn.style.display = "flex";
+            touchHint.style.display = "block";
+            setTimeout(() => touchHint.style.display = "none", 2800);
+        } else {
+            // Hide fire button for desktop (optional)
+            // You can leave it visible if desired.
+            // fireBtn.style.display = "none";
+        }
+
+        // Make sure player position keeps consistent with canvas resize
+        window.addEventListener("resize", () => {
+            player.y = window.innerHeight - 80;
+            player.x = Math.max(0, Math.min(window.innerWidth - player.width, player.x));
+        });
+
+        // Save high score while playing if it is beaten mid-game (optional)
+        setInterval(() => {
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem("highScore", highScore);
+                updateUI();
+            }
+        }, 2000);
     </script>
 </body>
 </html>
